@@ -224,13 +224,14 @@ function ConfusionMatrix:render(sortmode, display, block, legendwidth)
    -- args
    local confusion = self.mat
    local classes = self.classes
-   local sortmode = sortmode or 'score' -- 'score' or 'occurrence'
+   local sortmode = sortmode or 'none' -- 'none', 'score' or 'occurrence'
    local block = block or 25
    local legendwidth = legendwidth or 200
    local display = display or false
 
    -- legends
    local legend = {
+      ['none'] = 'Confusion matrix [not sorted, global accuracy = %0.3f%%, per-class accuracy = %0.3f%%]',
       ['score'] = 'Confusion matrix [sorted by scores, global accuracy = %0.3f%%, per-class accuracy = %0.3f%%]',
       ['occurrence'] = 'Confusiong matrix [sorted by occurences, accuracy = %0.3f%%, per-class accuracy = %0.3f%%]'
    }
@@ -239,7 +240,7 @@ function ConfusionMatrix:render(sortmode, display, block, legendwidth)
    local diag = torch.FloatTensor(#classes)
    local freqs = torch.FloatTensor(#classes)
    local unconf = confusion
-   local confusion = confusion:clone()
+   local confusion = confusion:float():clone()
    local corrects = 0
    local total = 0
    for target = 1,#classes do
@@ -268,8 +269,10 @@ function ConfusionMatrix:render(sortmode, display, block, legendwidth)
       _,order = torch.sort(diag,1,true)
    elseif sortmode == 'occurrence' then
       _,order = torch.sort(freqs,1,true)
+   elseif sortmode == 'none' then
+      order = torch.range(1,#classes)
    else
-      error('sort mode must be one of: score | occurrence')
+      error('sort mode must be one of: none | score | occurrence')
    end
 
    -- render matrix
