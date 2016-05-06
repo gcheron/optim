@@ -25,6 +25,7 @@ function ConfusionMatrix:__init(nclasses, classes)
    self.averageValid = 0
    self.classes = classes or {}
    -- buffers
+   self._mat_flat = self.mat:view(-1)
    self._target = torch.FloatTensor()
    self._prediction = torch.FloatTensor()
    self._max = torch.FloatTensor()
@@ -34,9 +35,11 @@ end
 
 -- takes scalar prediction and target as input
 function ConfusionMatrix:_add(p, t)
+   assert(p and type(p) == 'number')
+   assert(t and type(t) == 'number')
    -- non-positive values are considered missing
    -- and therefore ignored
-   if t > 0 then 
+   if t > 0 then
       self.mat[t][p] = self.mat[t][p] + 1
    end
 end
@@ -47,12 +50,14 @@ function ConfusionMatrix:add(prediction, target)
       self:_add(prediction, target)
    else
       self._prediction:resize(prediction:size()):copy(prediction)
+      assert(prediction:dim() == 1)
       if type(target) == 'number' then
          -- prediction is a vector, then target assumed to be an index
          self._max:max(self._pred_idx, self._prediction, 1)
          self:_add(self._pred_idx[1], target)
       else
          -- both prediction and target are vectors
+         assert(target:dim() == 1)
          self._target:resize(target:size()):copy(target)
          self._max:max(self._targ_idx, self._target, 1)
          self._max:max(self._pred_idx, self._prediction, 1)
@@ -79,7 +84,7 @@ function ConfusionMatrix:batchAdd(predictions, targets)
    else
       error("predictions has invalid number of dimensions")
    end
-      
+
    self._target:resize(targets:size()):copy(targets)
    if targets:dim() == 1 then
       -- targets is a vector of classes
@@ -96,11 +101,20 @@ function ConfusionMatrix:batchAdd(predictions, targets)
    else
       error("targets has invalid number of dimensions")
    end
-   
-   --loop over each pair of indices
-   for i = 1,preds:size(1) do
-      self:_add(preds[i], targs[i])
-   end
+
+   -- non-positive values are considered missing and therefore ignored
+   local mask = targs:ge(1)
+   targs = targs[mask]
+   preds = preds[mask]
+
+   self._mat_flat = self._mat_flat or self.mat:view(-1) -- for backward compatibility
+
+   preds = preds:typeAs(targs)
+
+   assert(self.mat:isContiguous() and self.mat:stride(2) == 1)
+   local indices = ((targs - 1) * self.mat:stride(1) + preds):typeAs(self.mat)
+   local ones = torch.ones(1):typeAs(self.mat):expand(indices:size(1))
+   self._mat_flat:indexAdd(1, indices, ones)
 end
 
 function ConfusionMatrix:zero()
@@ -184,11 +198,21 @@ function ConfusionMatrix:farFrr()
    return self._classFrrs, self._classFars, returnFrrs, returnFars
 end
 
+local function log10(n)
+   if math.log10 then
+      return math.log10(n)
+   else
+      return math.log(n) / math.log(10)
+   end
+end
+
 function ConfusionMatrix:__tostring__()
    self:updateValids()
    local str = {'ConfusionMatrix:\n'}
    local nclasses = self.nclasses
    table.insert(str, '[')
+   local maxCnt = self.mat:max()
+   local nDigits = math.max(8, 1 + math.ceil(log10(maxCnt)))
    for t = 1,nclasses do
       local pclass = self.valids[t] * 100
       pclass = string.format('%2.3f', pclass)
@@ -198,7 +222,7 @@ function ConfusionMatrix:__tostring__()
          table.insert(str, ' [')
       end
       for p = 1,nclasses do
-         table.insert(str, string.format('%8d', self.mat[t][p]))
+         table.insert(str, string.format('%' .. nDigits .. 'd', self.mat[t][p]))
       end
       if self.classes and self.classes[1] then
          if t == nclasses then
@@ -222,7 +246,7 @@ end
 
 function ConfusionMatrix:render(sortmode, display, block, legendwidth)
    -- args
-   local confusion = self.mat
+   local confusion = self.mat:double()
    local classes = self.classes
    local sortmode = sortmode or 'none' -- 'none', 'score' or 'occurrence'
    local block = block or 25
@@ -302,7 +326,7 @@ function ConfusionMatrix:render(sortmode, display, block, legendwidth)
       win1:setcolor{r=0,g=0,b=0}
       win1:rectangle((#render)[2],(i-1)*block,legendwidth,block)
       win1:fill()
-      
+
       -- %
       win1:setfont(qt.QFont{serif=false, size=fontsize})
       local gscale = freqs[order[i]]/freqs:max()*0.9+0.1 --3/4
