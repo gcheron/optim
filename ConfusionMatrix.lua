@@ -264,7 +264,7 @@ function ConfusionMatrix:render(sortmode, display, block, legendwidth)
    local diag = torch.FloatTensor(#classes)
    local freqs = torch.FloatTensor(#classes)
    local unconf = confusion
-   local confusion = confusion:float():clone()
+   local confusion = confusion:clone()
    local corrects = 0
    local total = 0
    for target = 1,#classes do
